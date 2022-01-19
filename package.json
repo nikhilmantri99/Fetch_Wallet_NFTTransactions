@@ -1,0 +1,24 @@
+{
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.64",
+    "@types/jest": "^26.0.14",
+    "serverless-bundle": "^5.2.0",
+    "serverless-dotenv-plugin": "^3.10.0",
+    "serverless-offline": "^8.3.1"
+  },
+  "dependencies": {
+    "electron": "^16.0.6",
+    "moralis": "^0.0.183",
+    "node-fetch": "^3.1.0"
+  },
+  "type": "module",
+  "name": "etherscan_testing",
+  "version": "1.0.0",
+  "main": "etherscantesting.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "description": ""
+}
