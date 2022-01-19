@@ -4,6 +4,31 @@ const serverUrl = "https://kpvcez1i2tg3.usemoralis.com:2053/server";
 const appId = "viZCI1CZimCj22ZTyFuXudn3g0wUnG2pELzPvdg6";
 Moralis.start({ serverUrl, appId });
 
+async function find_conversion_rate(ticker1,ticker2,timeline){ // gets price of ticker 1 in terms of ticker 2
+    if((ticker1=="ETH" && ticker2=="WETH") || (ticker1=="WETH" && ticker2=="ETH") || ticker1==ticker2){
+        return 1;
+    }
+    //https://api.covalenthq.com/v1/pricing/historical/eth/revv/
+    //?quote-currency=USD&format=JSON&from=2021-12-31&to=2021-12-31&key=ckey_c4b9331412914d59845089270d0
+    let part1="https://api.covalenthq.com/v1/pricing/historical/";
+    let part2=ticker2;
+    let part3="/";
+    let part4=ticker1;
+    let part5="/?quote-currency=USD&format=JSON&from=";
+    let part6=timeline.slice(0,10);
+    let part7="&to=";
+    let part8=part6;
+    let part9="&key=ckey_c4b9331412914d59845089270d0";
+    let url_complete=part1.concat(part2,part3,part4,part5,part6,part7,part8,part9);
+    const ans = await fetch(url_complete).then(response=>{return response.json();});
+    //console.log(url_complete);
+    //console.log(ans);
+    if(ans==null || ans.data==null) return null;
+    else{
+       return ans.data.prices[0].price; 
+    }
+}
+
 async function covalent_logs(txn_hash,waddress,NFTfrom,NFTto){
     let part1='https://api.covalenthq.com/v1/1/transaction_v2/';
     let part2=txn_hash;
@@ -26,21 +51,24 @@ async function covalent_logs(txn_hash,waddress,NFTfrom,NFTto){
                 && ans.data.items[0].log_events[i].decoded.name=="Transfer"
                 && ans.data.items[0].log_events[i].decoded.params!=null 
                 && ans.data.items[0].log_events[i].decoded.params[2].value!=null){
+                const rate= await find_conversion_rate(ans.data.items[0].log_events[i].sender_contract_ticker_symbol,
+                    "ETH",ans.data.items[0].log_events[i].block_signed_at);
+                //console.log("Conversion Rate: ",rate," of 1 ",ans.data.items[0].log_events[i].sender_contract_ticker_symbol," to ETH");
                 if(ans.data.items[0].log_events[i].decoded.params[1].value==NFTfrom){
-                    mainmoney+=parseInt(ans.data.items[0].log_events[i].decoded.params[2].value)/(10**18);
+                    mainmoney+=rate*parseInt(ans.data.items[0].log_events[i].decoded.params[2].value)/(10**18);
                     if(i+1<ans.data.items[0].log_events.length){
                         if(ans.data.items[0].log_events[i+1].decoded!=null 
                             && ans.data.items[0].log_events[i+1].sender_contract_decimals==18
                             && ans.data.items[0].log_events[i+1].decoded.name=="Transfer"
                             && ans.data.items[0].log_events[i+1].decoded.params[2].value!=null){
-                                comission+=parseInt(ans.data.items[0].log_events[i+1].decoded.params[2].value)/(10**18);
+                                comission+=rate*parseInt(ans.data.items[0].log_events[i+1].decoded.params[2].value)/(10**18);
                         }
                     }
                     //return [mainmoney,comission];
                 }
                 else if(ans.data.items[0].log_events[i].decoded.params[0].value==NFTfrom){
-                    mainmoney-=parseInt(ans.data.items[0].log_events[i].decoded.params[2].value)/(10**18);
-                    comission+=parseInt(ans.data.items[0].log_events[i].decoded.params[2].value)/(10**18);
+                    mainmoney-=rate*parseInt(ans.data.items[0].log_events[i].decoded.params[2].value)/(10**18);
+                    comission+=rate*parseInt(ans.data.items[0].log_events[i].decoded.params[2].value)/(10**18);
                 }
             }
         }
@@ -57,17 +85,19 @@ async function etherscan_logs(txn_hash,waddress,NFTfrom,NFTto){
     let url_complete=part1.concat(part2,part3,part4);
     const ans = await fetch(url_complete).then(response=>{return response.json();});
     var mainmoney=0,commission=0;
-    
+    var count_occurence=0;//useful for bundle
+    var count_occurence2=0;
     for(var i=0;i<ans.result.length;i++){
         if(ans.result[i].value!=null){
             if(ans.result[i].to==NFTfrom){
                 mainmoney+=parseInt(ans.result[i].value)/(10**18);
+                count_occurence++;
                 if(i-1>=0){
                     commission+=parseInt(ans.result[i-1].value)/(10**18);
                 }
-                //return [mainmoney,commission];
             }
             else if(ans.result[i].from==NFTfrom){
+                count_occurence2++;
                 mainmoney-=parseInt(ans.result[i].value)/(10**18);
                 commission+=parseInt(ans.result[i].value)/(10**18);
             }
@@ -77,7 +107,9 @@ async function etherscan_logs(txn_hash,waddress,NFTfrom,NFTto){
         return null;
     }
     else{
-        return [mainmoney,commission];
+        if(count_occurence>0) return [mainmoney/count_occurence,commission/count_occurence];
+        else if(count_occurence2>0) return [mainmoney/count_occurence2,commission/count_occurence2];
+        else return [mainmoney,commission];
     }
 }
 
@@ -98,10 +130,13 @@ async function value_from_hash(txn_hash,waddress,NFTfrom,NFTto){
     }
 }
 
+
+//const rate=await find_conversion_rate("REVV","ETH","2021-12-31");
+//console.log(rate);
 const chain_name="eth";
 //const waddress="0x4958cde93218e9bbeaa922cd9f8b3feec1342772";
-//const waddress="0x899241b0c41051313ce36271a7e13d54c94877a1";
-const waddress="0xe8bf704e1e27067c664177a851166021e96c1071";
+const waddress="0x899241b0c41051313ce36271a7e13d54c94877a1";
+//const waddress="0xe8bf704e1e27067c664177a851166021e96c1071";
 const options = { chain: chain_name, address: waddress,limit:"30"};
 const transfersNFT = await Moralis.Web3API.account.getNFTTransfers(options);
 console.log(transfersNFT);
@@ -129,10 +164,10 @@ for(var i=0;i<transfersNFT.result.length;i++){
     }
     count++;
     if(transfersNFT.result[i].from_address==waddress){
-        console.log(count,". Sold NFT. Revenue Increases. Value:",final_value[0]," Hash: ",transfersNFT.result[i].transaction_hash);
+        console.log(count,". Sold NFT. Revenue Increases. Value:",final_value[0]," ETH. Hash: ",transfersNFT.result[i].transaction_hash);
     }
     else{
-        console.log(count,". Bought NFT. Spending Increases. Value:",final_value[0]+final_value[1]," Hash: ",transfersNFT.result[i].transaction_hash);
+        console.log(count,". Bought NFT. Spending Increases. Value:",final_value[0]+final_value[1]," ETH. Hash: ",transfersNFT.result[i].transaction_hash);
     }
     console.log("NFT went from: ",transfersNFT.result[i].from_address," to: ",transfersNFT.result[i].to_address);
 }
