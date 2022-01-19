@@ -36,7 +36,7 @@ async function covalent_logs(txn_hash,waddress,NFTfrom,NFTto){
                                 comission+=parseInt(ans.data.items[0].log_events[i+1].decoded.params[2].value)/(10**18);
                         }
                     }
-                    return [mainmoney,comission];
+                    //return [mainmoney,comission];
                 }
                 else if(ans.data.items[0].log_events[i].decoded.params[0].value==NFTfrom){
                     mainmoney-=parseInt(ans.data.items[0].log_events[i].decoded.params[2].value)/(10**18);
