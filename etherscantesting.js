@@ -1,8 +1,5 @@
 import Moralis from "moralis/node.js";
 import fetch from 'node-fetch';
-const serverUrl = "https://kpvcez1i2tg3.usemoralis.com:2053/server";
-const appId = "viZCI1CZimCj22ZTyFuXudn3g0wUnG2pELzPvdg6";
-Moralis.start({ serverUrl, appId });
 
 async function find_conversion_rate(ticker1,ticker2,timeline){ // gets price of ticker 1 in terms of ticker 2
     if((ticker1=="ETH" && ticker2=="WETH") || (ticker1=="WETH" && ticker2=="ETH") || ticker1==ticker2){
@@ -179,49 +176,54 @@ async function value_from_hash(txn_hash,waddress,NFTfrom,NFTto,chain_name){
     }
 }
 
-
-const chain_name="polygon";
-const waddress="0x967a326a5241d349979c9c8ef150ce3a1a657652";
-const options = { chain: chain_name, address: waddress,limit:"30"};
-const transfersNFT = await Moralis.Web3API.account.getNFTTransfers(options);
-console.log(transfersNFT);
-console.log("For wallet address:",waddress," ,chain: ",chain_name,"\nFollowing are the NFT Transaction values: ")
-var count=0;
-for(var i=0;i<transfersNFT.result.length;i++){
-    //console.log("Hello");
-    const value_from_moralis=parseInt(transfersNFT.result[i].value)/(10**18);
-    //console.log(transfersNFT.result[i].transaction_hash);
-    const value_from_hash_scans=await value_from_hash(transfersNFT.result[i].transaction_hash,waddress,
-                                                        transfersNFT.result[i].from_address,transfersNFT.result[i].to_address,chain_name);
-    if(value_from_hash_scans==-1){
-        continue;
-    }
-    //console.log(value_from_moralis,value_from_hash_scans);
-    var final_value;
-    if(value_from_hash_scans!=null){
-        final_value=value_from_hash_scans;
-        if(final_value[0]<0){
-            let ticker1="ETH";
-            if(chain_name=="polygon"){
-                ticker1="MATIC";
-            }
-            const rate=await find_conversion_rate(ticker1,final_value[2],transfersNFT.result[i].block_timestamp);
-            final_value[0]+=rate*value_from_moralis;
+async function return_NFT_transactions(chain_name,waddress){
+    const serverUrl = "https://kpvcez1i2tg3.usemoralis.com:2053/server";
+    const appId = "viZCI1CZimCj22ZTyFuXudn3g0wUnG2pELzPvdg6";
+    Moralis.start({ serverUrl, appId });
+    const options = { chain: chain_name, address: waddress,limit:"30"};
+    const transfersNFT = await Moralis.Web3API.account.getNFTTransfers(options);
+    //console.log(transfersNFT);
+    console.log("For wallet address:",waddress," ,chain: ",chain_name,"\nFollowing are the NFT Transaction values: ")
+    var count=0;
+    for(var i=0;i<transfersNFT.result.length;i++){
+        //console.log("Hello");
+        const value_from_moralis=parseInt(transfersNFT.result[i].value)/(10**18);
+        //console.log(transfersNFT.result[i].transaction_hash);
+        const value_from_hash_scans=await value_from_hash(transfersNFT.result[i].transaction_hash,waddress,
+                                                            transfersNFT.result[i].from_address,transfersNFT.result[i].to_address,chain_name);
+        if(value_from_hash_scans==-1){
+            continue;
         }
+        //console.log(value_from_moralis,value_from_hash_scans);
+        var final_value;
+        if(value_from_hash_scans!=null){
+            final_value=value_from_hash_scans;
+            if(final_value[0]<0){
+                let ticker1="ETH";
+                if(chain_name=="polygon"){
+                    ticker1="MATIC";
+                }
+                const rate=await find_conversion_rate(ticker1,final_value[2],transfersNFT.result[i].block_timestamp);
+                final_value[0]+=rate*value_from_moralis;
+            }
+        }
+        else if(chain_name=="polygon"){
+            final_value=[value_from_moralis,0,"MATIC"];
+        }
+        else{
+            final_value=[value_from_moralis,0,"ETH"];
+        }
+        count++;
+        if(transfersNFT.result[i].from_address==waddress){
+            console.log(count,". Sold NFT. Revenue Increases. Value:",final_value[0],final_value[2],". Hash: ",transfersNFT.result[i].transaction_hash);
+        }
+        else{
+            console.log(count,". Bought NFT. Spending Increases. Value:",final_value[0]+final_value[1],final_value[2],". Hash: ",transfersNFT.result[i].transaction_hash);
+        }
+        console.log("NFT went from: ",transfersNFT.result[i].from_address," to: ",transfersNFT.result[i].to_address);
     }
-    else{
-        final_value=[value_from_moralis,0,"MATIC"];
-    }
-    count++;
-    if(transfersNFT.result[i].from_address==waddress){
-        console.log(count,". Sold NFT. Revenue Increases. Value:",final_value[0],final_value[2],". Hash: ",transfersNFT.result[i].transaction_hash);
-    }
-    else{
-        console.log(count,". Bought NFT. Spending Increases. Value:",final_value[0]+final_value[1],final_value[2],". Hash: ",transfersNFT.result[i].transaction_hash);
-    }
-    console.log("NFT went from: ",transfersNFT.result[i].from_address," to: ",transfersNFT.result[i].to_address);
 }
 
-
-
-
+const chain_name="eth";
+const waddress="0x899241b0c41051313ce36271a7e13d54c94877a1";
+return_NFT_transactions(chain_name,waddress);
