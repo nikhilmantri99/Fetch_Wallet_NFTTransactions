@@ -29,8 +29,17 @@ async function find_conversion_rate(ticker1,ticker2,timeline){ // gets price of 
     }
 }
 
-async function covalent_logs(txn_hash,waddress,NFTfrom,NFTto){
-    let part1='https://api.covalenthq.com/v1/1/transaction_v2/';
+async function covalent_logs(txn_hash,waddress,NFTfrom,NFTto,chain_name){
+    var chain_num;
+    if(chain_name=='polygon'){
+        chain_num="137";
+    }
+    else{
+        chain_num="1";
+    }
+    let e1='https://api.covalenthq.com/v1/';
+    let e2='/transaction_v2/';
+    let part1=e1.concat(chain_num,e2);
     let part2=txn_hash;
     let part3='/?&key=';
     let part4='ckey_c4b9331412914d59845089270d';
@@ -74,10 +83,10 @@ async function covalent_logs(txn_hash,waddress,NFTfrom,NFTto){
         }
     }
     if(mainmoney==0 && comission==0) return null;
-    else return [mainmoney,comission];
+    else return [mainmoney,comission,"ETH"];
 }
 
-async function etherscan_logs(txn_hash,waddress,NFTfrom,NFTto){
+async function etherscan_logs(txn_hash,waddress,NFTfrom,NFTto,chain_name){
     let part1= 'https://api.etherscan.io/api?module=account&action=txlistinternal&txhash=';
     let part2=txn_hash;
     let part3='&apikey=';
@@ -107,22 +116,62 @@ async function etherscan_logs(txn_hash,waddress,NFTfrom,NFTto){
         return null;
     }
     else{
-        if(count_occurence>0) return [mainmoney/count_occurence,commission/count_occurence];
-        else if(count_occurence2>0) return [mainmoney/count_occurence2,commission/count_occurence2];
-        else return [mainmoney,commission];
+        if(count_occurence>0) return [mainmoney/count_occurence,commission/count_occurence,"ETH"];
+        else if(count_occurence2>0) return [mainmoney/count_occurence2,commission/count_occurence2,"ETH"];
+        else return [mainmoney,commission,"ETH"];
     }
 }
 
-async function value_from_hash(txn_hash,waddress,NFTfrom,NFTto){
-    const ans1= await covalent_logs(txn_hash,waddress,NFTfrom,NFTto);
-    //const ans2= await etherscan_logs(txn_hash,waddress);
-    //console.log(ans1);
-    //console.log(ans2);
+async function polygonscan_logs(txn_hash,waddress,NFTfrom,NFTto,chain_name){
+    let part1= 'https://api.polygonscan.com/api?module=account&action=txlistinternal&txhash=';
+    let part2=txn_hash;
+    let part3='&apikey=';
+    let part4='KSPP4UMVPIGFV24FEA19RGND8XN9V3D3C3';
+    let url_complete=part1.concat(part2,part3,part4);
+    //console.log(url_complete);
+    const ans = await fetch(url_complete).then(response=>{return response.json();});
+    //console.log(ans);
+    var mainmoney=0,commission=0;
+    var count_occurence=0;//useful for bundle
+    var count_occurence2=0;
+    for(var i=0;i<ans.result.length;i++){
+        if(ans.result[i].value!=null){
+            if(ans.result[i].to==NFTfrom){
+                mainmoney+=parseInt(ans.result[i].value)/(10**18);
+                count_occurence++;
+                if(i-1>=0){
+                    commission+=parseInt(ans.result[i-1].value)/(10**18);
+                }
+            }
+            else if(ans.result[i].from==NFTfrom){
+                count_occurence2++;
+                mainmoney-=parseInt(ans.result[i].value)/(10**18);
+                commission+=parseInt(ans.result[i].value)/(10**18);
+            }
+        }
+    }
+    if(mainmoney==0 && commission==0){
+        return null;
+    }
+    else{
+        if(count_occurence>0) return [mainmoney/count_occurence,commission/count_occurence,"MATIC"];
+        else if(count_occurence2>0) return [mainmoney/count_occurence2,commission/count_occurence2,"MATIC"];
+        else return [mainmoney,commission,"MATIC"];
+    }
+}
+
+
+async function value_from_hash(txn_hash,waddress,NFTfrom,NFTto,chain_name){
+    const ans1= await covalent_logs(txn_hash,waddress,NFTfrom,NFTto,chain_name);
     if(ans1==[-1]){
         return -1;
     }
-    if(ans1==null){
-        const ans2= await etherscan_logs(txn_hash,waddress,NFTfrom,NFTto);
+    else if(ans1==null && chain_name=="eth"){
+        const ans2= await etherscan_logs(txn_hash,waddress,NFTfrom,NFTto,chain_name);
+        return ans2;
+    }
+    else if(ans1==null && chain_name=="polygon"){
+        const ans2= await polygonscan_logs(txn_hash,waddress,NFTfrom,NFTto,chain_name);
         return ans2;
     }
     else{
@@ -131,12 +180,8 @@ async function value_from_hash(txn_hash,waddress,NFTfrom,NFTto){
 }
 
 
-//const rate=await find_conversion_rate("REVV","ETH","2021-12-31");
-//console.log(rate);
-const chain_name="eth";
-//const waddress="0x4958cde93218e9bbeaa922cd9f8b3feec1342772";
-const waddress="0x899241b0c41051313ce36271a7e13d54c94877a1";
-//const waddress="0xe8bf704e1e27067c664177a851166021e96c1071";
+const chain_name="polygon";
+const waddress="0x967a326a5241d349979c9c8ef150ce3a1a657652";
 const options = { chain: chain_name, address: waddress,limit:"30"};
 const transfersNFT = await Moralis.Web3API.account.getNFTTransfers(options);
 console.log(transfersNFT);
@@ -147,7 +192,7 @@ for(var i=0;i<transfersNFT.result.length;i++){
     const value_from_moralis=parseInt(transfersNFT.result[i].value)/(10**18);
     //console.log(transfersNFT.result[i].transaction_hash);
     const value_from_hash_scans=await value_from_hash(transfersNFT.result[i].transaction_hash,waddress,
-                                                        transfersNFT.result[i].from_address,transfersNFT.result[i].to_address);
+                                                        transfersNFT.result[i].from_address,transfersNFT.result[i].to_address,chain_name);
     if(value_from_hash_scans==-1){
         continue;
     }
@@ -156,23 +201,27 @@ for(var i=0;i<transfersNFT.result.length;i++){
     if(value_from_hash_scans!=null){
         final_value=value_from_hash_scans;
         if(final_value[0]<0){
-            final_value[0]+=value_from_moralis;
+            let ticker1="ETH";
+            if(chain_name=="polygon"){
+                ticker1="MATIC";
+            }
+            const rate=await find_conversion_rate(ticker1,final_value[2],transfersNFT.result[i].block_timestamp);
+            final_value[0]+=rate*value_from_moralis;
         }
     }
     else{
-        final_value=[value_from_moralis,0];
+        final_value=[value_from_moralis,0,"MATIC"];
     }
     count++;
     if(transfersNFT.result[i].from_address==waddress){
-        console.log(count,". Sold NFT. Revenue Increases. Value:",final_value[0]," ETH. Hash: ",transfersNFT.result[i].transaction_hash);
+        console.log(count,". Sold NFT. Revenue Increases. Value:",final_value[0],final_value[2],". Hash: ",transfersNFT.result[i].transaction_hash);
     }
     else{
-        console.log(count,". Bought NFT. Spending Increases. Value:",final_value[0]+final_value[1]," ETH. Hash: ",transfersNFT.result[i].transaction_hash);
+        console.log(count,". Bought NFT. Spending Increases. Value:",final_value[0]+final_value[1],final_value[2],". Hash: ",transfersNFT.result[i].transaction_hash);
     }
     console.log("NFT went from: ",transfersNFT.result[i].from_address," to: ",transfersNFT.result[i].to_address);
 }
-// console.log(transfersNFT);
-// NFTtransfersFromWallet(chain_,address_);
+
 
 
 
