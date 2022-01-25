@@ -1,5 +1,7 @@
 import Moralis from "moralis/node.js";
 import fetch from 'node-fetch';
+import AWS from "aws-sdk";
+var exports={};
 
 async function find_conversion_rate(ticker1,ticker2,timeline){ // gets price of ticker 1 in terms of ticker 2
     if((ticker1=="ETH" && ticker2=="WETH") || (ticker1=="WETH" && ticker2=="ETH") || ticker1==ticker2){
@@ -176,13 +178,32 @@ async function value_from_hash(txn_hash,waddress,NFTfrom,NFTto,chain_name){
     }
 }
 
-async function return_NFT_transactions(chain_name,waddress){
+async function return_NFT_transactions(userid,chain_name,waddress){
+    AWS.config.update({region:'us-east-1'});
+    const dynamoDb = new AWS.DynamoDB.DocumentClient();
+    const get_back = {
+        TableName: "lambda-api-wallet-transactions-db",
+        // 'Key' defines the partition key and sort key of the item to be retrieved
+        Key: {
+          userId: userid, // The id of the author
+          walletId: waddress, // The id of the note from the path
+        },
+    };
+    const newResult = await dynamoDb.get(get_back).promise();
+    if(newResult!=null && newResult.Item!=null){
+        console.log("exists in the table.");
+        return {
+            statusCode: 200,
+            body: newResult,
+        };
+    }
+    const transcations_list=[];
     const serverUrl = "https://kpvcez1i2tg3.usemoralis.com:2053/server";
     const appId = "viZCI1CZimCj22ZTyFuXudn3g0wUnG2pELzPvdg6";
     Moralis.start({ serverUrl, appId });
-    const options = { chain: chain_name, address: waddress,limit:"30"};
+    const options = { chain: chain_name, address: waddress, limit: "5"};
     const transfersNFT = await Moralis.Web3API.account.getNFTTransfers(options);
-    //console.log(transfersNFT);
+    console.log(transfersNFT);
     console.log("For wallet address:",waddress," ,chain: ",chain_name,"\nFollowing are the NFT Transaction values: ")
     var count=0;
     for(var i=0;i<transfersNFT.result.length;i++){
@@ -190,7 +211,8 @@ async function return_NFT_transactions(chain_name,waddress){
         const value_from_moralis=parseInt(transfersNFT.result[i].value)/(10**18);
         //console.log(transfersNFT.result[i].transaction_hash);
         const value_from_hash_scans=await value_from_hash(transfersNFT.result[i].transaction_hash,waddress,
-                                                            transfersNFT.result[i].from_address,transfersNFT.result[i].to_address,chain_name);
+                                                           transfersNFT.result[i].from_address,transfersNFT.result[i].to_address,chain_name);
+        //const value_from_hash_scans=null;
         if(value_from_hash_scans==-1){
             continue;
         }
@@ -214,16 +236,75 @@ async function return_NFT_transactions(chain_name,waddress){
             final_value=[value_from_moralis,0,"ETH"];
         }
         count++;
+        var action;
+        var net_value_;
         if(transfersNFT.result[i].from_address==waddress){
+            action="Sold";
+            net_value_=final_value[0];
             console.log(count,". Sold NFT. Revenue Increases. Value:",final_value[0],final_value[2],". Hash: ",transfersNFT.result[i].transaction_hash);
         }
         else{
+            action="Bought";
+            net_value_=final_value[0]+final_value[1];
             console.log(count,". Bought NFT. Spending Increases. Value:",final_value[0]+final_value[1],final_value[2],". Hash: ",transfersNFT.result[i].transaction_hash);
         }
-        console.log("NFT went from: ",transfersNFT.result[i].from_address," to: ",transfersNFT.result[i].to_address);
+        const this_transaction={
+            Item:  {
+                userId :'1',
+                walletId : waddress,
+                blockchain_name: chain_name,
+                transaction_hash: transfersNFT.result[i].transaction_hash,
+                transaction_timestamp: transfersNFT.result[i].block_timestamp,
+                tokenaddress : transfersNFT.result[i].token_address,
+                tokenid: transfersNFT.result[i].token_id,
+                activity: action,
+                value: final_value[0],
+                value_mp_fees: final_value[1],
+                net_value: net_value_,
+                gas_price: 0,
+                currency_of_transaction: final_value[2],
+            }
+        };
+        transcations_list.push(this_transaction);
+    }
+    const transactions={
+        TableName: "lambda-api-wallet-transactions-db",
+        Item: {
+            userId :get_back.Key.userId,
+            walletId : get_back.Key.walletId,
+            transactions: transcations_list,
+        }
+    }
+    try{
+        await dynamoDb.put(transactions).promise();
+        const response_body = await dynamoDb.get(get_back).promise();
+        return {
+            statusCode: 200,
+            body: response_body,
+        };
+    }
+    catch(e){
+        console.log("Error is found....");
+        console.log(e);
+        return {
+            statusCode: 500,
+            body: JSON.stringify({ error: e.message }),
+        };
     }
 }
 
+exports.handler = async function(event, context){
+    const wallet = event["queryStringParameters"]['wallet'];
+    const userId = event["queryStringParameters"]['userid'];
+    var chain_name= event["queryStringParameters"]['chain'];
+    if(chain_name==null){
+        chain_name="eth";
+    }
+    const ans= await return_NFT_transactions(userId, chain_name, wallet);
+    return ans;
+};
+
 const chain_name="eth";
 const waddress="0x899241b0c41051313ce36271a7e13d54c94877a1";
-return_NFT_transactions(chain_name,waddress);
+const ans= await return_NFT_transactions("1",chain_name,waddress);
+console.log(ans.body.Item.transactions);
